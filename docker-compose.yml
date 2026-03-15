@@ -68,7 +68,7 @@ services:
   mysql:
     image: mysql:8.4
     ports:
-      - "3306:3306"
+      - "13306:3306"   # ホスト3306はMySQL84が使用中のため13306にマップ
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
       - MYSQL_USER=testuser

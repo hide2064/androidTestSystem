@@ -1,7 +1,7 @@
 FROM node:20-slim AS appium-base
 
 # Appium Server インストール
-RUN npm install -g appium@2 && \
+RUN npm install -g appium@latest && \
     appium driver install uiautomator2
 
 FROM python:3.11-slim

@@ -6,6 +6,7 @@ YAMLを読み込み、ドライバを動的にロードして管理する。
 import importlib
 import logging
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -72,7 +73,7 @@ class EquipmentAgent:
         result: MeasureResult = self._get(name).measure(parameter)
         return {"value": result.value, "unit": result.unit, "raw": result.raw}
 
-    def call_method(self, name: str, method: str, kwargs: dict) -> any:
+    def call_method(self, name: str, method: str, kwargs: dict) -> Any:
         """ドライバ固有メソッドを呼ぶ（set_voltage, output_on 等）"""
         driver = self._get(name)
         func = getattr(driver, method, None)

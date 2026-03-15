@@ -79,10 +79,10 @@ class EquipmentAgentClient:
             resp.raise_for_status()
             return resp.json()
 
-    async def call_method(self, instrument: str, method: str, kwargs: dict = {}) -> dict:
+    async def call_method(self, instrument: str, method: str, kwargs: dict | None = None) -> dict:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             resp = await c.post(f"{EQUIPMENT_AGENT_URL}/instruments/{instrument}/method",
-                                json={"method": method, "kwargs": kwargs})
+                                json={"method": method, "kwargs": kwargs or {}})
             resp.raise_for_status()
             return resp.json()
 

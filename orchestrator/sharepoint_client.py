@@ -3,7 +3,7 @@ SharePointClient — Microsoft Graph API 経由でSharePointに試験結果を�
 """
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import httpx
@@ -49,7 +49,6 @@ class SharePointClient:
 
         self._token = data["access_token"]
         # expires_in は秒数、余裕を持って60秒早めに失効扱い
-        from datetime import timedelta
         self._token_expiry = datetime.now() + timedelta(seconds=data["expires_in"] - 60)
         return self._token
 

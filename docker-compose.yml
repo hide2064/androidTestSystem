@@ -54,17 +54,6 @@ services:
       - ./equipment-agent/config:/app/config
     restart: unless-stopped
 
-  # ⑤ Watchtower（自動バージョンアップ）
-  watchtower:
-    image: containrrr/watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - WATCHTOWER_SCHEDULE=0 0 2 * * *   # 毎日02:00に更新確認
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_INCLUDE_STOPPED=false
-    restart: unless-stopped
-
 networks:
   default:
     name: test-system-network

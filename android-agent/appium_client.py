@@ -3,7 +3,7 @@ AppiumClient — Appium Server を経由してAndroid端末のUIを操作する
 """
 import logging
 import os
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +23,17 @@ except ImportError:
 
 
 # セッションを端末IDごとにキャッシュ
-_sessions: dict[str, any] = {}
+_sessions: dict[str, Any] = {}
 
 
 def _get_driver(device_id: str, app_package: Optional[str] = None,
-                app_activity: Optional[str] = None):
+                app_activity: Optional[str] = None) -> Any:
     """指定端末のAppiumドライバを返す（セッション再利用）"""
-    if device_id in _sessions:
-        return _sessions[device_id]
-
     if not _APPIUM_AVAILABLE:
         raise RuntimeError("Appium-Python-Client がインストールされていません")
+
+    if device_id in _sessions:
+        return _sessions[device_id]
 
     caps = {
         "platformName": "Android",
@@ -55,34 +55,36 @@ def _get_driver(device_id: str, app_package: Optional[str] = None,
     return driver
 
 
-def _locator(driver, locator_type: str, locator_value: str):
-    """ロケータータイプに応じた要素を返す"""
+def _locator_by(locator_type: str, locator_value: str) -> tuple:
+    """
+    WebDriverWait 用の (By, value) タプルを返す。
+    Appium 未インストール時は RuntimeError を送出する。
+    """
     if not _APPIUM_AVAILABLE:
         raise RuntimeError("Appium が利用できません")
 
     type_map = {
-        "id":      AppiumBy.ID,
-        "text":    AppiumBy.ANDROID_UIAUTOMATOR,
-        "xpath":   AppiumBy.XPATH,
-        "class":   AppiumBy.CLASS_NAME,
-        "desc":    AppiumBy.ACCESSIBILITY_ID,
+        "id":    AppiumBy.ID,
+        "text":  AppiumBy.ANDROID_UIAUTOMATOR,
+        "xpath": AppiumBy.XPATH,
+        "class": AppiumBy.CLASS_NAME,
+        "desc":  AppiumBy.ACCESSIBILITY_ID,
     }
     by = type_map.get(locator_type)
     if by is None:
         raise ValueError(f"未知のロケータータイプ: {locator_type}  有効: {list(type_map)}")
 
-    # text: の場合は UiSelector().text() を自動生成
     if locator_type == "text":
         locator_value = f'new UiSelector().text("{locator_value}")'
 
-    return driver.find_element(by, locator_value)
+    return by, locator_value
 
 
 class AppiumClient:
 
     @staticmethod
     def start_session(device_id: str, app_package: str, app_activity: str) -> dict:
-        driver = _get_driver(device_id, app_package, app_activity)
+        _get_driver(device_id, app_package, app_activity)
         return {"status": "session_started", "device_id": device_id}
 
     @staticmethod
@@ -97,15 +99,13 @@ class AppiumClient:
     @staticmethod
     def tap(device_id: str, locator_type: str, locator_value: str,
             wait_sec: float = 10) -> dict:
-        """要素をタップする"""
+        """要素をタップする（WebDriverWait で出現を待機してからタップ）"""
         driver = _get_driver(device_id)
+        by, value = _locator_by(locator_type, locator_value)
         element = WebDriverWait(driver, wait_sec).until(
-            EC.presence_of_element_located(
-                (_locator_by(locator_type, locator_value))
-            )
-        ) if _APPIUM_AVAILABLE else None
-
-        _locator(driver, locator_type, locator_value).click()
+            EC.presence_of_element_located((by, value))
+        )
+        element.click()
         return {"status": "tapped"}
 
     @staticmethod
@@ -113,7 +113,10 @@ class AppiumClient:
                    text: str) -> dict:
         """要素にテキストを入力する"""
         driver = _get_driver(device_id)
-        element = _locator(driver, locator_type, locator_value)
+        by, value = _locator_by(locator_type, locator_value)
+        element = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((by, value))
+        )
         element.clear()
         element.send_keys(text)
         return {"status": "text_input"}
@@ -123,7 +126,10 @@ class AppiumClient:
                  wait_sec: float = 10) -> str:
         """要素のテキストを取得する"""
         driver = _get_driver(device_id)
-        element = _locator(driver, locator_type, locator_value)
+        by, value = _locator_by(locator_type, locator_value)
+        element = WebDriverWait(driver, wait_sec).until(
+            EC.presence_of_element_located((by, value))
+        )
         return element.text
 
     @staticmethod
@@ -131,7 +137,10 @@ class AppiumClient:
         """要素が存在するか確認する"""
         driver = _get_driver(device_id)
         try:
-            _locator(driver, locator_type, locator_value)
+            by, value = _locator_by(locator_type, locator_value)
+            WebDriverWait(driver, 3).until(
+                EC.presence_of_element_located((by, value))
+            )
             return True
         except Exception:
             return False
@@ -141,20 +150,3 @@ class AppiumClient:
         """スクリーンショットをBase64で返す"""
         driver = _get_driver(device_id)
         return driver.get_screenshot_as_base64()
-
-
-def _locator_by(locator_type: str, locator_value: str):
-    """WebDriverWait 用の (By, value) タプルを返す"""
-    if not _APPIUM_AVAILABLE:
-        return None, None
-    type_map = {
-        "id":   AppiumBy.ID,
-        "text": AppiumBy.ANDROID_UIAUTOMATOR,
-        "xpath": AppiumBy.XPATH,
-        "class": AppiumBy.CLASS_NAME,
-        "desc":  AppiumBy.ACCESSIBILITY_ID,
-    }
-    by = type_map.get(locator_type, AppiumBy.XPATH)
-    if locator_type == "text":
-        locator_value = f'new UiSelector().text("{locator_value}")'
-    return by, locator_value

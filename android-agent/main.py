@@ -124,8 +124,11 @@ def appium_start_session(req: AppiumSessionRequest):
 @app.post("/appium/session/close")
 def appium_close_session(device_id: str):
     """Appiumセッションを終了する"""
-    AppiumClient.close_session(device_id)
-    return {"status": "closed"}
+    try:
+        AppiumClient.close_session(device_id)
+        return {"status": "closed"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/appium/tap")
 def appium_tap(req: AppiumTapRequest):

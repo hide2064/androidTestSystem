@@ -13,6 +13,7 @@ rm = ResultManager.__new__(ResultManager)
 rm._results_dir = __import__("pathlib").Path("/tmp/test_results")
 rm._results_dir.mkdir(exist_ok=True)
 rm._sp = mock.MagicMock()
+rm._engine = None  # DB未接続（ユニットテストでは MySQL を使わない）
 
 
 # ─── evaluate（文字列）─────────────────────────────────────

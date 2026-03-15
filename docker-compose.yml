@@ -27,9 +27,19 @@ services:
       - SHAREPOINT_CLIENT_ID=${SHAREPOINT_CLIENT_ID}
       - SHAREPOINT_CLIENT_SECRET=${SHAREPOINT_CLIENT_SECRET}
       - TEST_SITE=${TEST_SITE:-default}
+      # MySQL 接続
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=testuser
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=testSystemDB
     depends_on:
-      - android-agent
-      - equipment-agent
+      mysql:
+        condition: service_healthy
+      android-agent:
+        condition: service_started
+      equipment-agent:
+        condition: service_started
     restart: unless-stopped
 
   # ③ Android Agent（ADB + Appium）
@@ -53,6 +63,28 @@ services:
     volumes:
       - ./equipment-agent/config:/app/config
     restart: unless-stopped
+
+  # ⑥ MySQL 8.4（共通データストア）
+  mysql:
+    image: mysql:8.4
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_USER=testuser
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
 
 networks:
   default:

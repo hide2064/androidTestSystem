@@ -3,10 +3,20 @@
 | 項目 | 内容 |
 |---|---|
 | ドキュメント番号 | AND-TEST-DESIGN-001 |
-| バージョン | 1.0.0 |
+| バージョン | 2.0.0 |
 | 作成日 | 2026-03-15 |
-| 対象リポジトリ | android-test-system |
+| 最終更新 | 2026-03-15 (opeAnyalyze 統合) |
+| 対象リポジトリ | androidTestSystem |
 | ステータス | 実装済み・テスト済み |
+
+---
+
+## 変更履歴
+
+| バージョン | 日付 | 内容 |
+|---|---|---|
+| 1.0.0 | 2026-03-15 | 初版（androidTestSystem 基本設計） |
+| 2.0.0 | 2026-03-15 | opeAnyalyze 統合: MySQL・analysis-service・Vue 3 ダッシュボード追加 |
 
 ---
 
@@ -37,20 +47,24 @@
 
 ### 1.1 目的
 
-Android OS 搭載端末（DUT: Device Under Test）と各種試験機材を自動制御し、試験手順を標準化・自動化するシステムです。ブラウザから操作でき、試験結果はクラウドで一元管理します。
+Android OS 搭載端末（DUT: Device Under Test）と各種試験機材を自動制御し、試験手順を標準化・自動化するシステムです。ブラウザから操作でき、試験結果を MySQL で一元管理・分析可視化します。
+
+v2.0.0 より opeAnyalyze（RF試験データ分析ダッシュボード）を統合し、**試験実行→DB保存→分析・可視化** を一つのシステムで完結できるようになりました。
 
 ### 1.2 要件一覧
 
 | # | 要件 | 対応方法 | 実装状態 |
 |---|---|---|---|
 | R01 | Android端末の自動試験 | ADB + Appium (UiAutomator2) | ✅ 実装済 |
-| R02 | ブラウザからコントロール | Web Dashboard (localhost:3000) | ✅ 実装済 |
+| R02 | ブラウザからコントロール | Vue 3 Dashboard (localhost:3000) | ✅ 実装済 |
 | R03 | 様々な試験機材の制御 | Equipment Agent プラグイン式 | ✅ 実装済 |
 | R04 | 様々なPCで利用可能 | Docker Compose による環境統一 | ✅ 実装済 |
 | R05 | 簡単な環境構築 | `docker compose up` 一発起動 | ✅ 実装済 |
 | R06 | バージョンアップ容易性 | `git pull && docker compose up --build` | ✅ 手動運用 |
 | R07 | クラウド結果管理 | SharePoint Lists + Power BI | ✅ 実装済 |
 | R08 | 属人化防止 | YAML試験定義・Python標準構成 | ✅ 実装済 |
+| R09 | 試験結果の分析・可視化 | MySQL + analysis-service + ECharts | ✅ 実装済 (v2.0.0) |
+| R10 | RF試験データの統合分析 | opeAnyalyze backend 統合 | ✅ 実装済 (v2.0.0) |
 
 ### 1.3 システムスコープ
 
@@ -60,8 +74,10 @@ Android OS 搭載端末（DUT: Device Under Test）と各種試験機材を自�
   ・Android端末のUI操作・状態確認（Appium）
   ・Android端末の低レベル制御（ADB）
   ・試験機材の制御（電源・計測器等）
-  ・試験結果のローカル保存・SharePoint送信
+  ・試験結果のMySQL保存・SharePoint送信
   ・ブラウザによるリアルタイム監視
+  ・Android試験結果の KPI・グラフ分析（v2.0.0追加）
+  ・RF試験データの分布・トレンド・マージン分析（v2.0.0追加）
 
 【スコープ外】
   ・試験機材のドライバ開発（枠組みのみ提供）
@@ -77,57 +93,50 @@ Android OS 搭載端末（DUT: Device Under Test）と各種試験機材を自�
 ### 2.1 全体構成図
 
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│  ホストPC（Windows / Mac / Linux）                                   │
-│                                                                    │
-│  試験員                                                             │
-│   │ ブラウザ (Chrome / Edge 等)                                    │
-│   └──► http://localhost:3000                                       │
-│              │                                                     │
-│  ┌───────────┼──────────────────────────────────────────────────┐ │
-│  │  Docker Compose  (test-system-network)                        │ │
-│  │           │                                                   │ │
-│  │   ┌───────▼──────────────────────────────────┐               │ │
-│  │   │  ① Dashboard (nginx) :3000               │               │ │
-│  │   │    index.html                             │               │ │
-│  │   │    REST GET/POST → :8000                  │               │ │
-│  │   │    WebSocket ws://localhost:8000/ws/log   │               │ │
-│  │   └───────────────────┬──────────────────────┘               │ │
-│  │                       │ HTTP                                  │ │
-│  │   ┌───────────────────▼──────────────────────┐               │ │
-│  │   │  ② Orchestrator (FastAPI) :8000           │               │ │
-│  │   │    main.py         ← REST + WebSocket      │               │ │
-│  │   │    scenario_runner.py ← 試験実行エンジン   │               │ │
-│  │   │    scenario_parser.py ← YAML読み込み      │               │ │
-│  │   │    state_manager.py   ← 状態管理          │               │ │
-│  │   │    result_manager.py  ← 結果集計・保存    │               │ │
-│  │   │    agent_client.py    ← Agent HTTP通信    │               │ │
-│  │   │    sharepoint_client.py ← Graph API      │               │ │
-│  │   └──────────┬───────────────────┬────────────┘               │ │
-│  │              │ HTTP              │ HTTP                        │ │
-│  │   ┌──────────▼──────┐  ┌────────▼──────────────────────┐     │ │
-│  │   │ ③ Android Agent │  │ ④ Equipment Agent              │     │ │
-│  │   │   :5000 FastAPI │  │   :5001 FastAPI               │     │ │
-│  │   │   :4723 Appium  │  │   agent.py（プラグインLoader）│     │ │
-│  │   │   adb_client.py │  │   base_driver.py（I/F）        │     │ │
-│  │   │   appium_client │  │   drivers/visa/               │     │ │
-│  │   └──────┬──────────┘  │   drivers/serial/             │     │ │
-│  └──────────┼─────────────│   drivers/rest/               │─────┘ │
-│             │ TCP:5037    │   drivers/mock/               │       │
-│  ADB Server ◄─────────   └───────────────┬───────────────┘       │
-│  （ホスト常駐）                           │ VISA/Serial/REST/LAN   │
-│             │ USB or Wi-Fi              試験機材                   │
-│        Android端末 (DUT)               （電源・計測器等）           │
-└────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  ホストPC（Windows / Mac / Linux）                                              │
+│                                                                              │
+│  試験員                                                                       │
+│   │ ブラウザ (Chrome / Edge 等)                                               │
+│   └──► http://localhost:3000                                                  │
+│              │                                                               │
+│  ┌───────────┼───────────────────────────────────────────────────────────┐  │
+│  │  Docker Compose  (test-system-network)                                 │  │
+│  │                                                                        │  │
+│  │   ┌──────────────────────────────────────────────────────────────┐    │  │
+│  │   │  ① Dashboard (Vue 3 + Nginx) :3000                            │    │  │
+│  │   │    試験実行タブ │ Android分析タブ │ RF分析タブ │ 汎用分析タブ   │    │  │
+│  │   │    /api/orchestrator/ → REST + WebSocket (Nginx proxy)        │    │  │
+│  │   │    /api/analysis/     → REST           (Nginx proxy)          │    │  │
+│  │   └────────┬───────────────────────────────────┬─────────────────┘    │  │
+│  │            │ REST + WebSocket                  │ REST                  │  │
+│  │   ┌────────▼──────────────┐        ┌───────────▼────────────────┐     │  │
+│  │   │  ② Orchestrator       │        │  ⑤ analysis-service          │     │  │
+│  │   │     (FastAPI) :8000   │        │     (FastAPI) :8001          │     │  │
+│  │   │  scenario_runner.py   │        │  routers/android.py          │     │  │
+│  │   │  result_manager.py    │        │  routers/rf.py               │     │  │
+│  │   │  ← MySQL write        │        │  routers/schema.py           │     │  │
+│  │   └──┬────────────────────┘        │  analyzers/ (統計・相関等)   │     │  │
+│  │      │ HTTP                        └──────────┬─────────────────┘     │  │
+│  │   ┌──▼──────────┐  ┌────────────┐             │ SQL                   │  │
+│  │   │ ③ Android   │  │ ④ Equip.   │  ┌──────────▼────────────────┐     │  │
+│  │   │   Agent     │  │   Agent    │  │  ⑥ MySQL 8.4 :13306(host) │     │  │
+│  │   │   :5000     │  │   :5001    │  │    testSystemDB            │     │  │
+│  │   │   ADB+Appium│  │   Plugin   │  │      android_test_results  │     │  │
+│  │   └──────┬──────┘  └─────┬──────┘  │      android_test_steps    │     │  │
+│  └──────────┼───────────────┼─────────│    cellularAnylyze         │─────┘  │
+│             │ TCP:5037      │ VISA/   │      rf_test_data          │        │
+│  ADB Server ◄              │ Serial  └────────────────────────────┘        │
+│  （ホスト常駐）            試験機材                                            │
+│             │ USB or Wi-Fi                                                   │
+│        Android端末 (DUT)                                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
                     │ HTTPS  Microsoft Graph API
                     ▼
          ┌──────────────────────────┐
          │  ☁️  Microsoft 365        │
          │  SharePoint Lists        │
          │  （TestResults リスト）   │
-         │         │                │
-         │         ▼                │
-         │  Power BI ダッシュボード  │
          └──────────────────────────┘
 ```
 
@@ -135,10 +144,12 @@ Android OS 搭載端末（DUT: Device Under Test）と各種試験機材を自�
 
 | # | コンポーネント | 技術スタック | ポート | 役割 |
 |---|---|---|---|---|
-| ① | Web Dashboard | HTML/JS (Vanilla) + nginx | 3000 | 試験操作UI・リアルタイムログ・結果閲覧 |
-| ② | Orchestrator | Python 3.11 + FastAPI + asyncio | 8000 | 試験司令塔・シナリオ実行・結果管理 |
-| ③ | Android Agent | Python 3.11 + FastAPI + ADB + Appium | 5000 / 4723 | Android端末のUI操作・低レベル制御 |
+| ① | Web Dashboard | Vue 3 + Pinia + ECharts + Element Plus + Nginx | 3000 | 4タブ統合UI（試験制御・Android分析・RF分析・汎用分析） |
+| ② | Orchestrator | Python 3.11 + FastAPI + asyncio + SQLAlchemy | 8000 | 試験司令塔・シナリオ実行・MySQL書き込み・SharePoint送信 |
+| ③ | Android Agent | Python 3.11 + FastAPI + ADB + Appium v3 | 5000 / 4723 | Android端末のUI操作・低レベル制御 |
 | ④ | Equipment Agent | Python 3.11 + FastAPI + PyVISA/pyserial | 5001 | 計測器・試験機材制御（プラグイン式） |
+| ⑤ | analysis-service | Python 3.11 + FastAPI + SQLAlchemy + pandas | 8001 | Android/RF試験データの分析API（opeAnyalyze backend） |
+| ⑥ | MySQL | MySQL 8.4 | 13306(host)/3306(内部) | 共通データストア（testSystemDB + cellularAnylyze） |
 
 ### 2.3 ADB接続方式の選定理由
 
@@ -427,59 +438,100 @@ class BaseDriver(ABC):
 | REST API | rest/generic_rest.py | HTTPで制御する機材 | requests | base_url, measure_endpoints |
 | Mock | mock/mock_driver.py | テスト・デモ用 | なし | mock_values |
 
-### 3.4 Web Dashboard
+### 3.4 Web Dashboard (Vue 3)
 
-#### 3.4.1 画面構成
+#### 3.4.1 ディレクトリ構成
+
+```
+dashboard/src/
+├── main.ts                    # Vue 3 + Element Plus + ECharts 初期化
+├── App.vue                    # 4タブナビゲーション（nav-bar + el-tabs）
+├── views/
+│   ├── TestControlView.vue    # タブ①: シナリオ選択・試験実行・リアルタイムログ
+│   ├── AndroidDashboardView.vue # タブ②: KPI・合否率・PASS率推移・結果一覧
+│   ├── RfDashboardView.vue    # タブ③: RF試験 スライサー・分布・トレンド等
+│   └── AnalysisView.vue       # タブ④: 汎用テーブル分析
+├── stores/
+│   ├── testStore.ts           # WebSocket接続・状態ポーリング(2s)・ログバッファ(500件)
+│   ├── androidStore.ts        # Androidフィルタ状態・Promise.all並列API呼び出し
+│   ├── rfStore.ts             # RFフィルタ状態・Promise.all並列API呼び出し
+│   └── schemaStore.ts         # 汎用テーブル/カラムスキーマ
+├── api/
+│   ├── orchestrator.ts        # fetchScenarios/Status/startTest/stopTest/Results
+│   ├── android.ts             # fetchFilters/Summary/Yield/Trend/Results/Detail
+│   └── rf.ts                  # RF分析API群 + buildParams()
+└── components/
+    ├── filters/SlicerPanel.vue  # PowerBI風マルチセレクトスライサー
+    ├── rf/                      # KpiCards, YieldChart, DistributionChart, TrendChart, MarginChart
+    └── layout/AppSidebar.vue
+```
+
+#### 3.4.2 画面構成（タブ①: 試験実行）
+
+```
+┌──────────────────────────────────────────────────────┐
+│ TestSystem  [試験実行] [Android分析] [RF分析] [汎用分析] │
+├──────────────────────────────────────────────────────┤
+│  試験シナリオ: [sample_wifi_test ▼]                   │
+│  デバイスID:  [device-001      ]                      │
+│  [▶ 試験開始]  [⏹ 試験中断]                           │
+│                                                      │
+│  ┌────────────────────────────── ターミナル(黒) ────┐ │
+│  │ 2026-03-15 14:17:40  === 試験開始: wifi_test === │ │
+│  │ [Step 1]  adb   → PASS  sdk_gphone64_x86_64     │ │
+│  │ [Step 2]  wait  → PASS  5s                      │ │
+│  │ [Step 3]  adb   → FAIL  [Errno -2] ...          │ │
+│  └──────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────┘
+```
+
+#### 3.4.3 画面構成（タブ②: Android分析）
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ HEADER: [●ステータス] Android 自動試験システム    [経過時間] │
-├─────────────────┬──────────────────────────────────────────┤
-│  左パネル        │  右パネル（タブ）                        │
-│                 │  [リアルタイムログ] [ステップ進捗] [結果]  │
-│ ■ 試験シナリオ  │                                          │
-│  [セレクトBox]  │  ログタブ:                               │
-│                 │   10:23:01 === 試験開始: Wi-Fi試験 ===    │
-│ ■ Android端末   │   10:23:02 [Step 1] 端末情報取得         │
-│  [セレクトBox]  │   10:23:02   → ✅ PASS                   │
-│  ● device-001  │   10:23:03 [Step 2] スクリーンショット     │
-│                 │   10:23:04   → ✅ PASS                   │
-│ [▶ 試験開始]    │                                          │
-│ [⏹ 試験中断]    │  ステップタブ:                           │
-│                 │   #1 端末情報取得       ✅               │
-│ ■ 結果サマリー  │   #2 スクリーンショット ✅               │
-│  総: 10 PASS: 9 │   #3 Wi-FiをOFFにする  ▶ ←現在         │
-│  FAIL: 1  90%   │   #4 待機              —                │
-│                 │                                          │
-│ ■ 計測器        │  結果タブ:                               │
-│  ● mock_power  │   日時         シナリオ  端末  結果       │
-│  ● mock_rf     │   2026-03-15   wifi_test dev-1 ✅PASS    │
-└─────────────────┴──────────────────────────────────────────┘
+│ フィルタ     │  [KPIカード] 総:2  PASS:0  FAIL:2  PASS率:0% │
+│ シナリオ:    │  ┌──────────────────┐ ┌──────────────────┐  │
+│ □wifi_test  │  │ 合否率(棒グラフ)  │ │ PASS率推移(折線) │  │
+│ デバイスID:  │  │ [シナリオ別 ▼]   │ │ [1時間 ▼]        │  │
+│ □device-001 │  │  ECharts         │ │  ECharts         │  │
+│ □TEST-DEV   │  └──────────────────┘ └──────────────────┘  │
+│ 結果:        │  試験結果一覧 (2件)                          │
+│ □PASS □FAIL │   日時           シナリオ  端末   結果       │
+│ [フィルタCLR]│   2026-03-15...  wifi     TEST.. [FAIL]    │
+│             │   → クリックで詳細ドロワー表示               │
+└────────────────────────────────────────────────────────────┘
 ```
 
-#### 3.4.2 フロントエンド通信設計
+#### 3.4.4 フロントエンド通信設計
 
 ```
-Dashboard (index.html)
+Vue 3 Dashboard (localhost:3000)
     │
-    ├─ 初期ロード (DOMContentLoaded)
-    │    ├─ GET  /scenarios      → シナリオセレクト
-    │    ├─ GET  /devices        → 端末セレクト
-    │    ├─ GET  /instruments    → 計測器リスト
-    │    └─ GET  /results        → 結果テーブル
+    ├─ testStore.ts（試験制御タブ）
+    │    ├─ onMounted: GET /api/orchestrator/scenarios
+    │    ├─ startTest: POST /api/orchestrator/test/start
+    │    ├─ stopTest:  POST /api/orchestrator/test/stop
+    │    ├─ statusPoll: GET /api/orchestrator/test/status  [2秒間隔]
+    │    └─ WebSocket: ws://localhost:3000/api/orchestrator/ws/log
     │
-    ├─ 試験開始 ボタン押下
-    │    └─ POST /test/start {scenario_name, device_id}
+    ├─ androidStore.ts（Android分析タブ）
+    │    └─ refresh(): Promise.all([
+    │         GET /api/analysis/api/v1/android/filters
+    │         GET /api/analysis/api/v1/android/summary
+    │         GET /api/analysis/api/v1/android/yield
+    │         GET /api/analysis/api/v1/android/trend
+    │         GET /api/analysis/api/v1/android/results
+    │       ])
     │
-    ├─ 試験中断 ボタン押下
-    │    └─ POST /test/stop
-    │
-    ├─ ステータスポーリング（3秒間隔）
-    │    └─ GET  /test/status    → ステータスドット・ボタン制御
-    │
-    └─ WebSocket 常時接続
-         └─ ws://localhost:8000/ws/log
-              → ログエントリを受信しリアルタイム表示
+    └─ rfStore.ts（RF分析タブ）
+         └─ refresh(): Promise.all([
+              GET /api/analysis/api/v1/rf/filters
+              GET /api/analysis/api/v1/rf/summary
+              GET /api/analysis/api/v1/rf/yield
+              GET /api/analysis/api/v1/rf/distribution
+              GET /api/analysis/api/v1/rf/trend
+              GET /api/analysis/api/v1/rf/margin
+            ])
 ```
 
 ---
@@ -737,6 +789,47 @@ Orchestrator         Azure AD             SharePoint Graph API
 ```json
 { "status": "tapped" }
 ```
+
+### 6.4 analysis-service API (`:8001`) — Android試験結果
+
+すべてのフィルタパラメータは `?scenarios[]=X&device_ids[]=Y` の配列クエリを受け付ける。
+
+| エンドポイント | 説明 |
+|---|---|
+| `GET /api/v1/android/filters` | シナリオ・デバイスID・結果・拠点のユニーク値一覧 |
+| `GET /api/v1/android/summary` | KPI: total / pass_count / fail_count / yield_pct |
+| `GET /api/v1/android/yield?group_by=scenario` | グループ別 PASS/FAIL 件数と PASS率 |
+| `GET /api/v1/android/trend?freq=1D` | 時系列 PASS率推移 |
+| `GET /api/v1/android/results?limit=50&offset=0` | 試験結果一覧（ページング） |
+| `GET /api/v1/android/results/{run_id}` | 試験結果詳細（ステップ含む） |
+
+**`GET /api/v1/android/summary` レスポンス例:**
+```json
+{ "total": 42, "pass_count": 38, "fail_count": 4, "yield_pct": 90.48 }
+```
+
+**`GET /api/v1/android/yield?group_by=scenario` レスポンス例:**
+```json
+{
+  "group_by": "scenario",
+  "items": [
+    { "label": "sample_wifi_test", "pass_count": 38, "fail_count": 4, "total": 42, "yield_pct": 90.48 }
+  ]
+}
+```
+
+### 6.5 analysis-service API (`:8001`) — RF試験データ
+
+（opeAnyalyze backend をそのまま搭載。詳細は [opeAnyalyze CLAUDE.md](../../opeAnyalyze/CLAUDE.md) を参照）
+
+| エンドポイント | 説明 |
+|---|---|
+| `GET /api/v1/rf/filters` | DUTモデル・技術・バンド等のユニーク値 |
+| `GET /api/v1/rf/summary` | KPI: total / PASS / FAIL / yield% |
+| `GET /api/v1/rf/yield?group_by=Test_Item` | グループ別合否率 |
+| `GET /api/v1/rf/distribution?test_item=EVM` | 分布統計 + scatter データ |
+| `GET /api/v1/rf/trend?test_item=EVM&freq=1D` | 時系列トレンド |
+| `GET /api/v1/rf/margin?test_item=EVM&x_axis=Temperature_C` | マージン散布図 |
 
 ---
 
@@ -1092,14 +1185,53 @@ TEST_SITE=osaka-lab
 }
 ```
 
-### 10.2 環境変数一覧（.env）
+### 10.2 MySQL テーブル設計（testSystemDB）
+
+#### android_test_results
+
+| カラム | 型 | 説明 |
+|---|---|---|
+| run_id | VARCHAR(100) PK | `{YYYYMMDDTHHmmss}_{scenario}_{device_id}` |
+| scenario | VARCHAR(200) | シナリオ名 |
+| device_id | VARCHAR(100) | Android 端末 ID |
+| device_model | VARCHAR(100) | 端末モデル名 |
+| test_site | VARCHAR(100) | 試験拠点名 |
+| result | ENUM('PASS','FAIL') | 総合判定 |
+| total | INT | 総ステップ数 |
+| pass_count | INT | PASS ステップ数 |
+| fail_count | INT | FAIL ステップ数 |
+| started_at | DATETIME | 試験開始日時 |
+| finished_at | DATETIME | 試験終了日時 |
+| note | TEXT | 備考 |
+
+#### android_test_steps
+
+| カラム | 型 | 説明 |
+|---|---|---|
+| id | INT AUTO_INCREMENT PK | |
+| run_id | VARCHAR(100) FK → android_test_results | |
+| step_id | INT | ステップ番号 |
+| action | VARCHAR(50) | アクション種別 |
+| description | VARCHAR(500) | ステップ説明 |
+| response | TEXT | adb/appium レスポンス |
+| measured_value | DECIMAL(20,6) | 測定値 |
+| unit | VARCHAR(50) | 単位 |
+| upper_limit | DECIMAL(20,6) | 上限値 |
+| lower_limit | DECIMAL(20,6) | 下限値 |
+| pass | TINYINT(1) | 合否（1=PASS） |
+| error_msg | TEXT | エラーメッセージ |
+| executed_at | DATETIME | ステップ実行日時 |
+
+### 10.3 環境変数一覧（.env）
 
 | 変数名 | 必須 | 説明 | 例 |
 |---|---|---|---|
-| SHAREPOINT_SITE_URL | ✅ | SharePoint サイトURL | `https://contoso.sharepoint.com/sites/test` |
-| SHAREPOINT_TENANT_ID | ✅ | Azure AD テナントID | UUID形式 |
-| SHAREPOINT_CLIENT_ID | ✅ | Azure ADアプリのクライアントID | UUID形式 |
-| SHAREPOINT_CLIENT_SECRET | ✅ | クライアントシークレット値 | 文字列 |
+| MYSQL_ROOT_PASSWORD | ✅ | MySQL root パスワード | `TestSystem2024!` |
+| DB_PASSWORD | ✅ | testuser パスワード | `TestUser2024!` |
+| SHAREPOINT_SITE_URL | — | SharePoint サイトURL | `https://contoso.sharepoint.com/sites/test` |
+| SHAREPOINT_TENANT_ID | — | Azure AD テナントID | UUID形式 |
+| SHAREPOINT_CLIENT_ID | — | Azure ADアプリのクライアントID | UUID形式 |
+| SHAREPOINT_CLIENT_SECRET | — | クライアントシークレット値 | 文字列 |
 | TEST_SITE | — | 試験サイト識別子（結果に付与） | `osaka-lab` |
 
 ### 10.3 equipment.yaml スキーマ
@@ -1128,18 +1260,18 @@ instruments:               # 必須: 機材定義のマップ
 version: "3.9"
 
 services:
-  dashboard:                        # ① Web UI (nginx)
+  dashboard:                        # ① Vue 3 + Nginx
     build: ./dashboard
     ports: ["3000:3000"]
-    depends_on: [orchestrator]
+    depends_on: [orchestrator, analysis-service]
     restart: unless-stopped
 
   orchestrator:                     # ② 試験司令塔 (FastAPI)
     build: ./orchestrator
     ports: ["8000:8000"]
     volumes:
-      - ./orchestrator/scenarios:/app/scenarios  # シナリオをホストから参照
-      - ./results:/app/results                   # 結果をホストに保存
+      - ./orchestrator/scenarios:/app/scenarios
+      - ./results:/app/results
     environment:
       - ANDROID_AGENT_URL=http://android-agent:5000
       - EQUIPMENT_AGENT_URL=http://equipment-agent:5001
@@ -1148,29 +1280,79 @@ services:
       - SHAREPOINT_CLIENT_ID=${SHAREPOINT_CLIENT_ID}
       - SHAREPOINT_CLIENT_SECRET=${SHAREPOINT_CLIENT_SECRET}
       - TEST_SITE=${TEST_SITE:-default}
-    depends_on: [android-agent, equipment-agent]
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=testuser
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=testSystemDB
+    depends_on:
+      mysql:
+        condition: service_healthy
+      android-agent:
+        condition: service_started
+      equipment-agent:
+        condition: service_started
     restart: unless-stopped
 
-  android-agent:                    # ③ ADB + Appium (FastAPI)
+  android-agent:                    # ③ ADB + Appium v3
     build: ./android-agent
     ports: ["5000:5000", "4723:4723"]
     environment:
       - ADB_SERVER_HOST=host.docker.internal
       - ADB_SERVER_PORT=5037
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # Linux でも動作するよう設定
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   equipment-agent:                  # ④ 計測器制御 (FastAPI)
     build: ./equipment-agent
     ports: ["5001:5001"]
     volumes:
-      - ./equipment-agent/config:/app/config   # equipment.yaml をホストから参照
+      - ./equipment-agent/config:/app/config
     restart: unless-stopped
+
+  analysis-service:                 # ⑤ 分析API (opeAnyalyze backend)
+    build: ./analysis-service
+    ports: ["8001:8001"]
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=testuser
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=cellularAnylyze          # RF データ
+      - ANDROID_DB_HOST=mysql
+      - ANDROID_DB_PORT=3306
+      - ANDROID_DB_USER=testuser
+      - ANDROID_DB_PASSWORD=${DB_PASSWORD}
+      - ANDROID_DB_NAME=testSystemDB     # Android 結果
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mysql:                            # ⑥ 共通データストア
+    image: mysql:8.4
+    ports: ["13306:3306"]           # ホスト3306はMySQL84が使用中
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_USER=testuser
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
 
 networks:
   default:
-    name: test-system-network       # コンテナ間の内部ネットワーク
+    name: test-system-network
 ```
 
 ### 11.2 コンテナ間ネットワーク
@@ -1178,48 +1360,62 @@ networks:
 ```
 Docker network: test-system-network（bridge）
 
-  dashboard      → orchestrator    HTTP http://orchestrator:8000
-  orchestrator   → android-agent   HTTP http://android-agent:5000
-  orchestrator   → equipment-agent HTTP http://equipment-agent:5001
+  dashboard        → orchestrator      HTTP /api/orchestrator/ (Nginx proxy)
+  dashboard        → analysis-service  HTTP /api/analysis/     (Nginx proxy)
+  orchestrator     → android-agent     HTTP http://android-agent:5000
+  orchestrator     → equipment-agent   HTTP http://equipment-agent:5001
+  orchestrator     → mysql             TCP  mysql:3306
+  analysis-service → mysql             TCP  mysql:3306 (× 2 DB)
 
-  android-agent  → ホストOS         TCP  host.docker.internal:5037（ADB Server）
-  equipment-agent→ 計測器            VISA/Serial/REST（ホスト経由）
+  android-agent    → ホストOS          TCP  host.docker.internal:5037（ADB Server）
+  equipment-agent  → 計測器            VISA/Serial/REST（ホスト経由）
 
 外部公開ポート（ホスト）:
-  :3000  → Dashboard
-  :8000  → Orchestrator（ブラウザWebSocket用）
-  :5000  → Android Agent（直接アクセス用）
-  :5001  → Equipment Agent（直接アクセス用）
-  :4723  → Appium Server（デバッグ用）
+  :3000   → Dashboard（唯一のアクセス窓口）
+  :8000   → Orchestrator（デバッグ用）
+  :8001   → analysis-service（デバッグ用）
+  :13306  → MySQL（DBeaver等のDBツール接続用）
+  :5000   → Android Agent（デバッグ用）
+  :5001   → Equipment Agent（デバッグ用）
+  :4723   → Appium Server（デバッグ用）
 ```
 
 ### 11.3 各コンテナの Dockerfile
 
-#### Dashboard
+#### Dashboard（マルチステージビルド）
 ```dockerfile
+# ── ① ビルドステージ ──────────────────────────────────
+FROM node:20-slim AS builder
+WORKDIR /app
+COPY package.json .
+RUN npm install
+COPY . .
+RUN npm run build
+
+# ── ② Nginx 配信ステージ ────────────────────────────
 FROM nginx:alpine
-COPY index.html /usr/share/nginx/html/index.html
-RUN sed -i 's/listen\s*80/listen 3000/g' /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 3000
 CMD ["nginx", "-g", "daemon off;"]
 ```
 
-#### Orchestrator / Equipment Agent
+#### Orchestrator / Equipment Agent / analysis-service
 ```dockerfile
 FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-EXPOSE 8000   # または 5001
+EXPOSE 8000   # 8001 / 5001
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 #### Android Agent（マルチステージビルド）
 ```dockerfile
-# Stage 1: Appium インストール
+# Stage 1: Appium v3 インストール
 FROM node:20-slim AS appium-base
-RUN npm install -g appium@2 && appium driver install uiautomator2
+RUN npm install -g appium@latest && appium driver install uiautomator2
 
 # Stage 2: Python + ADB + Appium コピー
 FROM python:3.11-slim
@@ -1265,21 +1461,24 @@ CMD ["/start.sh"]   # Appium をバックグラウンド起動後に FastAPI 起
 
 ### 13.1 テスト戦略
 
-実機（Android端末・計測器・SharePoint）に依存しないロジック層を自動テストでカバーします。
+実機（Android端末・計測器・SharePoint・MySQL）に依存しないロジック層を自動テストでカバーします。
 
 ```
 テスト対象範囲:
-  ✅ scenario_parser.py    - YAML解析・バリデーション
-  ✅ state_manager.py      - 状態遷移管理
-  ✅ result_manager.py     - 合否判定・集計ロジック
-  ✅ equipment/agent.py    - プラグインローダー
-  ✅ drivers/mock/*.py     - モックドライバ動作
+  ✅ scenario_parser.py       - YAML解析・バリデーション
+  ✅ state_manager.py         - 状態遷移管理
+  ✅ result_manager.py        - 合否判定・集計ロジック (MySQL は _engine=None で回避)
+  ✅ equipment/agent.py       - プラグインローダー
+  ✅ drivers/mock/*.py        - モックドライバ動作
+  ✅ android API (analysis)   - FastAPI TestClient で HTTP エンドポイントをテスト (v2.0.0追加)
+  ✅ migrate_json_to_mysql.py - マイグレーションロジック (DB は mock で回避) (v2.0.0追加)
 
 テスト非対象（実機依存）:
   ✗ ADB実機操作
   ✗ Appium実端末UI操作
   ✗ PyVISA/Serial実機材接続
   ✗ SharePoint Graph API（認証情報依存）
+  ✗ MySQL 実DB接続（コンテナ起動必要）
 ```
 
 ### 13.2 テストケース一覧
@@ -1334,37 +1533,66 @@ CMD ["/start.sh"]   # Appium をバックグラウンド起動後に FastAPI 起
 | test_missing_config | 設定ファイルなし → 例外なし・空リスト |
 | test_invalid_driver_path | 不正ドライバパス → スキップ・空リスト |
 
+#### test_android_api.py（v2.0.0追加・10件）
+
+| テストケース | 確認内容 |
+|---|---|
+| test_filters_empty_db | 空DBで /filters → 空リスト返却 |
+| test_summary_empty_db | 空DBで /summary → total=0 |
+| test_yield_empty_db | 空DBで /yield → items=[] |
+| test_trend_empty_db | 空DBで /trend → labels=[] |
+| test_results_empty_db | 空DBで /results → total=0, items=[] |
+| test_results_with_data | データありで /results → total/items が正しく返る |
+| test_summary_with_data | データありで /summary → pass_count/yield_pct が正しく返る |
+| test_yield_group_by_invalid | group_by に不正値 → 400 エラー |
+| test_result_detail_not_found | 存在しない run_id → 404 |
+| test_result_detail_with_steps | データありで /results/{run_id} → steps を含む詳細が返る |
+
+#### test_migrate_script.py（v2.0.0追加・6件）
+
+| テストケース | 確認内容 |
+|---|---|
+| test_load_json_valid | 正常JSONを読み込める |
+| test_load_json_missing_run_id | run_idなし → skipped |
+| test_migrate_inserts_result | migrate() → android_test_results に insert される |
+| test_migrate_inserts_steps | migrate() → android_test_steps に全ステップ insert される |
+| test_migrate_dry_run | dry_run=True → DB操作なし・"dry-run" 返却 |
+| test_migrate_upsert | 同一run_idを再実行 → ON DUPLICATE KEY UPDATE で重複なし |
+
 ### 13.3 テスト実行コマンド
 
 ```bash
 # 依存パッケージインストール
-pip install pytest pyyaml httpx pydantic fastapi
+pip install pytest pyyaml httpx pydantic fastapi sqlalchemy pymysql pandas
 
 # 全テスト実行
 pytest tests/ -v
 
 # 特定ファイルのみ
-pytest tests/test_result_manager.py -v
+pytest tests/test_android_api.py -v
+pytest tests/test_migrate_script.py -v
 
 # カバレッジ計測
 pip install pytest-cov
-pytest tests/ --cov=orchestrator --cov=equipment-agent --cov-report=term-missing
+pytest tests/ --cov=orchestrator --cov=analysis-service/app --cov-report=term-missing
 ```
 
-### 13.4 テスト結果（実施済み）
+### 13.4 テスト結果（最新）
 
 ```
 ============================= test session starts =============================
 platform win32 -- Python 3.12.10, pytest-9.0.2
-collected 56 items
+collected 73 items
 
-tests/test_equipment_agent.py  ..........  (10 passed)
-tests/test_mock_driver.py      ........   ( 8 passed)
-tests/test_result_manager.py   ...................  (19 passed)
-tests/test_scenario_parser.py  ........   ( 8 passed)
-tests/test_state_manager.py    .........  ( 9 passed)
+tests/test_android_api.py        ...........  (11 passed)  ← 新規追加 (v2.0.0)
+tests/test_equipment_agent.py    ..........   (10 passed)
+tests/test_migrate_script.py     ......       ( 6 passed)  ← 新規追加 (v2.0.0)
+tests/test_mock_driver.py        ........     ( 8 passed)
+tests/test_result_manager.py     ...................  (19 passed)
+tests/test_scenario_parser.py    ........     ( 8 passed)
+tests/test_state_manager.py      .........    ( 9 passed)
 
-============================= 56 passed in 0.39s ==============================
+============================= 73 passed in 1.36s ==============================
 ```
 
 ---
@@ -1615,18 +1843,29 @@ docker compose restart equipment-agent
 
 ## 18. 残タスク・制約事項
 
-### 18.1 残タスク
+### 18.1 完了済みタスク（v2.0.0）
+
+| タスク | 状態 | 内容 |
+|---|---|---|
+| GitHubリポジトリ push | ✅ | https://github.com/hide2064/androidTestSystem |
+| MySQL 統合 | ✅ | Docker MySQL 8.4, testSystemDB + cellularAnylyze |
+| analysis-service | ✅ | opeAnyalyze backend を Docker サービスとして統合 |
+| Vue 3 ダッシュボード | ✅ | 4タブ統合UI（試験実行・Android分析・RF分析・汎用分析） |
+| JSON マイグレーション | ✅ | scripts/migrate_json_to_mysql.py |
+| バックアップスクリプト | ✅ | scripts/backup_mysql.sh |
+
+### 18.2 残タスク
 
 | 優先度 | タスク | 内容 |
 |---|---|---|
-| 高 | GitHubリポジトリ作成・push | `git remote add origin <URL>` して push |
 | 高 | SharePoint Azure ADアプリ登録 | セクション9.3の手順を実施して `.env` に設定 |
-| 高 | 実機動作確認 | `docker compose up` → Android端末接続 → サンプルシナリオ実行 |
+| 高 | 実機動作確認 | Android端末接続 → サンプルシナリオ実行 → 分析画面で確認 |
 | 中 | 実計測器ドライバ作成 | 手元の機材に合わせた `drivers/` 追加 |
-| 中 | Power BI レポート設計 | SharePoint Lists に接続した分析ダッシュボード構築 |
+| 中 | RF データ投入 | opeAnyalyze の CSV インポートで `cellularAnylyze` にデータ登録 |
 | 低 | 非エンジニア向けセットアップ手順書 | スクリーンショット付きWord/PDF資料 |
+| 低 | MySQL 定期バックアップ設定 | cron + scripts/backup_mysql.sh |
 
-### 18.2 既知の制約事項
+### 18.3 既知の制約事項
 
 | 制約 | 詳細 |
 |---|---|
@@ -1636,3 +1875,5 @@ docker compose restart equipment-agent
 | Wi-Fi ADB | Android 11以上で`adb tcpip`によるワイヤレス接続が可能 |
 | シリアル通信 | コンテナ内からシリアルポートを使う場合は docker-compose.yml の `devices:` 設定が別途必要 |
 | SharePoint | `TestResults` リストの Details 列は4000文字に切り詰め（SharePoint Lists の制限） |
+| MySQL ポート | ホスト MySQL84 サービスが 3306 を使用中のため Docker MySQL は 13306 にマッピング |
+| RF データ | `cellularAnylyze.rf_test_data` テーブルは CSV インポート必須（自動生成されない） |

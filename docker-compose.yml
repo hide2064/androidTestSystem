@@ -55,6 +55,29 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  # ⑤ Analysis Service（opeAnyalyze バックエンド）
+  analysis-service:
+    build: ./analysis-service
+    ports:
+      - "8001:8001"
+    environment:
+      # RF データ (cellularAnylyze)
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=testuser
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=cellularAnylyze
+      # Android 試験結果 (testSystemDB)
+      - ANDROID_DB_HOST=mysql
+      - ANDROID_DB_PORT=3306
+      - ANDROID_DB_USER=testuser
+      - ANDROID_DB_PASSWORD=${DB_PASSWORD}
+      - ANDROID_DB_NAME=testSystemDB
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ④ Equipment Agent（計測器・試験機材）
   equipment-agent:
     build: ./equipment-agent

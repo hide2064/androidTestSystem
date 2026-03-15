@@ -2,13 +2,14 @@ version: "3.9"
 
 services:
 
-  # ① Web Dashboard
+  # ① Web Dashboard (Vue 3 + Nginx)
   dashboard:
     build: ./dashboard
     ports:
       - "3000:3000"
     depends_on:
       - orchestrator
+      - analysis-service
     restart: unless-stopped
 
   # ② Test Orchestrator（司令塔）

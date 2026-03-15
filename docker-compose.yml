@@ -1,0 +1,70 @@
+version: "3.9"
+
+services:
+
+  # ① Web Dashboard
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "3000:3000"
+    depends_on:
+      - orchestrator
+    restart: unless-stopped
+
+  # ② Test Orchestrator（司令塔）
+  orchestrator:
+    build: ./orchestrator
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./orchestrator/scenarios:/app/scenarios
+      - ./results:/app/results
+    environment:
+      - ANDROID_AGENT_URL=http://android-agent:5000
+      - EQUIPMENT_AGENT_URL=http://equipment-agent:5001
+      - SHAREPOINT_SITE_URL=${SHAREPOINT_SITE_URL}
+      - SHAREPOINT_TENANT_ID=${SHAREPOINT_TENANT_ID}
+      - SHAREPOINT_CLIENT_ID=${SHAREPOINT_CLIENT_ID}
+      - SHAREPOINT_CLIENT_SECRET=${SHAREPOINT_CLIENT_SECRET}
+      - TEST_SITE=${TEST_SITE:-default}
+    depends_on:
+      - android-agent
+      - equipment-agent
+    restart: unless-stopped
+
+  # ③ Android Agent（ADB + Appium）
+  android-agent:
+    build: ./android-agent
+    ports:
+      - "5000:5000"   # REST API
+      - "4723:4723"   # Appium Server
+    environment:
+      - ADB_SERVER_HOST=host.docker.internal
+      - ADB_SERVER_PORT=5037
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # ④ Equipment Agent（計測器・試験機材）
+  equipment-agent:
+    build: ./equipment-agent
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./equipment-agent/config:/app/config
+    restart: unless-stopped
+
+  # ⑤ Watchtower（自動バージョンアップ）
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_SCHEDULE=0 0 2 * * *   # 毎日02:00に更新確認
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_STOPPED=false
+    restart: unless-stopped
+
+networks:
+  default:
+    name: test-system-network

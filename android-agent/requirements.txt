@@ -1,0 +1,5 @@
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.1
+Appium-Python-Client==3.1.1
+selenium==4.18.1

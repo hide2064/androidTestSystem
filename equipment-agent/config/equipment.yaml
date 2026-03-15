@@ -1,0 +1,66 @@
+# 接続する機材の設定ファイル
+# driver: drivers/<フォルダ>/<ファイル名>.py の Driver クラスを読み込む
+# 新機材を追加する場合はこのファイルにエントリを追記するだけ
+
+instruments:
+
+  # ── 電源 ──────────────────────────────────────────────────
+  power_supply:
+    driver: visa.keysight_e3631a
+    connection: visa
+    address: "GPIB0::5::INSTR"
+    timeout_ms: 5000
+    description: "Keysight E3631A 三出力直流電源"
+
+  # ── スペクトラムアナライザ ───────────────────────────────
+  spectrum_analyzer:
+    driver: visa.keysight_n9020b
+    connection: visa
+    address: "TCPIP0::192.168.1.20::inst0::INSTR"
+    timeout_ms: 10000
+    description: "Keysight N9020B MXA スペクトラムアナライザ"
+
+  # ── シリアル接続機材の例 ─────────────────────────────────
+  # serial_tester:
+  #   driver: serial.generic_serial
+  #   connection: serial
+  #   port: "COM3"          # Linux: "/dev/ttyUSB0"
+  #   baudrate: 9600
+  #   measure_commands:
+  #     voltage: "READ:VOLT?"
+  #     temperature: "MEAS:TEMP?"
+  #   units:
+  #     voltage: "V"
+  #     temperature: "degC"
+  #   description: "RS-232C接続の計測器"
+
+  # ── REST API接続機材の例 ──────────────────────────────────
+  # web_tester:
+  #   driver: rest.generic_rest
+  #   connection: rest
+  #   base_url: "http://192.168.1.30:8080"
+  #   measure_endpoints:
+  #     rssi: "/measure/rssi"
+  #     power: "/measure/power"
+  #   command_endpoint: "/command"
+  #   value_key: "value"
+  #   unit_key: "unit"
+  #   description: "REST API対応テスター"
+
+  # ── モック（実機なし動作確認用） ─────────────────────────
+  mock_power:
+    driver: mock.mock_driver
+    connection: mock
+    description: "モック電源（テスト用）"
+    mock_values:
+      voltage_ch1: 3.7
+      current_ch1: 0.5
+      voltage_ch2: 12.0
+
+  mock_rf:
+    driver: mock.mock_driver
+    connection: mock
+    description: "モックRFアナライザ（テスト用）"
+    mock_values:
+      peak_power: -30.0
+      channel_power: -32.5

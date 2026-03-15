@@ -1,0 +1,66 @@
+name: Wi-Fi接続試験
+version: "1.0"
+description: Wi-FiのON/OFF切り替えと接続状態の確認
+
+steps:
+  - id: 1
+    description: 端末情報を取得する
+    action: adb
+    command: shell getprop ro.product.model
+    # expect はオプション。記載がなければ常にPASS
+    # expect:
+    #   contains: "Pixel"
+
+  - id: 2
+    description: スクリーンショットを保存（試験前）
+    action: screenshot
+    save_path: /app/results/wifi_test_before.png
+
+  - id: 3
+    description: Wi-FiをOFFにする
+    action: adb
+    command: shell settings put global wifi_on 0
+
+  - id: 4
+    description: 5秒待機
+    action: wait
+    seconds: 5
+
+  - id: 5
+    description: 電源電圧を測定（モック）
+    action: equipment_measure
+    device: mock_power
+    parameter: voltage_ch1
+    expect:
+      between: [3.0, 4.5]
+    on_fail: stop
+
+  - id: 6
+    description: Wi-FiをONに戻す
+    action: adb
+    command: shell settings put global wifi_on 1
+
+  - id: 7
+    description: 10秒待機（Wi-Fi接続待ち）
+    action: wait
+    seconds: 10
+
+  - id: 8
+    description: Wi-Fi状態を確認する
+    action: adb
+    command: shell settings get global wifi_on
+    expect:
+      equals: "1"
+
+  - id: 9
+    description: 電波強度を測定（モック）
+    action: equipment_measure
+    device: mock_rf
+    parameter: peak_power
+    expect:
+      greater_than: -80
+
+  - id: 10
+    description: スクリーンショットを保存（試験後）
+    action: screenshot
+    save_path: /app/results/wifi_test_after.png

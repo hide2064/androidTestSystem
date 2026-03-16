@@ -7,9 +7,16 @@ services:
     build: ./dashboard
     ports:
       - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
-      - orchestrator
-      - analysis-service
+      orchestrator:
+        condition: service_healthy
+      analysis-service:
+        condition: service_healthy
     restart: unless-stopped
 
   # ② Test Orchestrator（司令塔）
@@ -34,29 +41,74 @@ services:
       - DB_USER=testuser
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=testSystemDB
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       mysql:
         condition: service_healthy
       android-agent:
-        condition: service_started
+        condition: service_healthy
       equipment-agent:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
-  # ③ Android Agent（ADB + Appium）
+  # ③ Android Agent（ADB + Appium クライアント）
   android-agent:
     build: ./android-agent
     ports:
-      - "5000:5000"   # REST API
-      - "4723:4723"   # Appium Server
+      - "5000:5000"
+    environment:
+      - ADB_SERVER_HOST=host.docker.internal
+      - ADB_SERVER_PORT=5037
+      - APPIUM_URL=http://appium:4723
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      appium:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ④ Appium Server（公式イメージ）
+  appium:
+    image: appium/appium:latest
+    ports:
+      - "4723:4723"
     environment:
       - ADB_SERVER_HOST=host.docker.internal
       - ADB_SERVER_PORT=5037
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4723/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
-  # ⑤ Analysis Service（opeAnyalyze バックエンド）
+  # ⑤ Equipment Agent（計測器・試験機材）
+  equipment-agent:
+    build: ./equipment-agent
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./equipment-agent/config:/app/config
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ⑥ Analysis Service（opeAnyalyze バックエンド）
   analysis-service:
     build: ./analysis-service
     ports:
@@ -74,21 +126,17 @@ services:
       - ANDROID_DB_USER=testuser
       - ANDROID_DB_PASSWORD=${DB_PASSWORD}
       - ANDROID_DB_NAME=testSystemDB
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       mysql:
         condition: service_healthy
     restart: unless-stopped
 
-  # ④ Equipment Agent（計測器・試験機材）
-  equipment-agent:
-    build: ./equipment-agent
-    ports:
-      - "5001:5001"
-    volumes:
-      - ./equipment-agent/config:/app/config
-    restart: unless-stopped
-
-  # ⑥ MySQL 8.4（共通データストア）
+  # ⑦ MySQL 8.4（共通データストア）
   mysql:
     image: mysql:8.4
     ports:

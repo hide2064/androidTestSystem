@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 ADB_HOST = os.getenv("ADB_SERVER_HOST", "host.docker.internal")
 ADB_PORT = os.getenv("ADB_SERVER_PORT", "5037")
-APPIUM_URL = "http://localhost:4723"
+APPIUM_URL = os.getenv("APPIUM_URL", "http://appium:4723")
 
 try:
     from appium import webdriver

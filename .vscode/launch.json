@@ -1,0 +1,84 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        // ── 個別アタッチ ─────────────────────────────────────────────
+        {
+            "name": "🎯 Attach: orchestrator (:5678)",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/orchestrator",
+                    "remoteRoot": "/app"
+                }
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "📱 Attach: android-agent (:5679)",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5679
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/android-agent",
+                    "remoteRoot": "/app"
+                }
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "🔧 Attach: equipment-agent (:5680)",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5680
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/equipment-agent",
+                    "remoteRoot": "/app"
+                }
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "📈 Attach: analysis-service (:5681)",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5681
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/analysis-service",
+                    "remoteRoot": "/app"
+                }
+            ],
+            "justMyCode": false
+        }
+    ],
+
+    // ── 全サービス一括アタッチ ────────────────────────────────────────
+    "compounds": [
+        {
+            "name": "🐛 Attach: All Services",
+            "configurations": [
+                "🎯 Attach: orchestrator (:5678)",
+                "📱 Attach: android-agent (:5679)",
+                "🔧 Attach: equipment-agent (:5680)",
+                "📈 Attach: analysis-service (:5681)"
+            ],
+            "stopAll": true
+        }
+    ]
+}

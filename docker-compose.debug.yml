@@ -1,0 +1,68 @@
+# デバッグ用 Docker Compose オーバーライド
+#
+# 使い方:
+#   docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d
+#   または: debug.bat
+#
+# 各サービスに debugpy (Python リモートデバッガ) を注入します。
+# ソースコードをボリュームマウントするため、ファイル保存で自動再起動 (--reload) します。
+#
+# デバッグポート:
+#   orchestrator    : 5678
+#   android-agent   : 5679
+#   equipment-agent : 5680
+#   analysis-service: 5681
+
+services:
+
+  # ── orchestrator ──────────────────────────────────────────────────────────
+  orchestrator:
+    command: >
+      sh -c "pip install debugpy -q &&
+             python -m debugpy --listen 0.0.0.0:5678
+             -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "5678:5678"   # debugpy アタッチポート
+    volumes:
+      - ./orchestrator:/app   # ソースをライブマウント（ホットリロード有効）
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+
+  # ── android-agent ─────────────────────────────────────────────────────────
+  android-agent:
+    command: >
+      sh -c "pip install debugpy -q &&
+             python -m debugpy --listen 0.0.0.0:5679
+             -m uvicorn main:app --host 0.0.0.0 --port 5000 --reload"
+    ports:
+      - "5679:5679"   # debugpy アタッチポート
+    volumes:
+      - ./android-agent:/app
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+
+  # ── equipment-agent ───────────────────────────────────────────────────────
+  equipment-agent:
+    command: >
+      sh -c "pip install debugpy -q &&
+             python -m debugpy --listen 0.0.0.0:5680
+             -m uvicorn main:app --host 0.0.0.0 --port 5001 --reload"
+    ports:
+      - "5680:5680"   # debugpy アタッチポート
+    volumes:
+      - ./equipment-agent:/app
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+
+  # ── analysis-service ──────────────────────────────────────────────────────
+  analysis-service:
+    command: >
+      sh -c "pip install debugpy -q &&
+             python -m debugpy --listen 0.0.0.0:5681
+             -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
+    ports:
+      - "5681:5681"   # debugpy アタッチポート
+    volumes:
+      - ./analysis-service:/app
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
